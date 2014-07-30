@@ -1,0 +1,55 @@
+FUNCTION zxweb_elo_get_ableinh.
+*"----------------------------------------------------------------------
+*"*"Lokális interfész:
+*"  IMPORTING
+*"     VALUE(IV_ANLAGE) TYPE  ANLAGE
+*"     VALUE(IV_BIS) TYPE  BISZEITSCH DEFAULT '99991231'
+*"  EXPORTING
+*"     VALUE(EV_ABLEINH) TYPE  ABLEINH
+*"     VALUE(EV_DIKTAL) TYPE  FLAG
+*"     VALUE(EV_RESZSZLA) TYPE  FLAG
+*"     VALUE(EV_SUBRC) TYPE  SUBRC
+*"     VALUE(EV_TARIFTYP) TYPE  TARIFTYP_ANL
+*"----------------------------------------------------------------------
+* Change history:
+* Date    User   Reason
+* ---------------------------------------------------------------------*
+* 2012.11.12. X0162       Létrehozva    ICP upgrade
+* 2014.07.28  X0134       Módosítás    INC000006322787-Az alábbi ügyfél diktálós mégis ITS-en sr al
+* ---------------------------------------------------------------------*
+  CONSTANTS: lc_vegtelen TYPE biszeitsch VALUE '99991231'.
+
+* Megadott idõszelet?
+  IF NOT iv_bis IS INITIAL.
+    SELECT SINGLE ableinh tariftyp
+      FROM eanlh
+      INTO (ev_ableinh, ev_tariftyp)
+      WHERE anlage EQ iv_anlage
+        AND bis    EQ iv_bis.
+  ELSE.
+*   Idõszelet nincs megadva, az aktuális szeletet vesszük
+    SELECT SINGLE ableinh tariftyp
+      FROM eanlh
+      INTO (ev_ableinh, ev_tariftyp)
+      WHERE anlage EQ iv_anlage
+        AND bis    EQ lc_vegtelen.
+  ENDIF.
+
+* Hibakezelés
+  IF sy-subrc NE 0.
+    ev_subrc = sy-subrc.
+  ENDIF.
+
+  CASE ev_ableinh(1).
+    WHEN '0' OR '1' OR '2' OR '3'.
+*Részszámlás fogyasztónak (leolvasási egység elso pozíciója:0, 1, 2, 3)
+      ev_reszszla = 'X'.
+    WHEN '5' OR '6' OR '7' OR '8'.
+*Diktálós fogyasztónak (leolvasási egység elso pozíciója:5, 6, 7, 8)
+      ev_diktal = 'X'.
+    WHEN OTHERS.
+
+  ENDCASE.
+
+
+ENDFUNCTION.

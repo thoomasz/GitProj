@@ -1,0 +1,141 @@
+class ZCL_XWEB_ELO_PERCONS_LST_DAO definition
+  public
+  inheriting from ZCL_XWEB_PERCONS_LST_DAO
+  create protected .
+
+public section.
+*"* public components of class ZCL_XWEB_ELO_PERCONS_LST_DAO
+*"* do not include other source files here!!!
+
+  class-methods CREATE_OBJECT
+    importing
+      !IV_CLASS type STRING
+      !IV_NAME type STRING optional
+      !IV_AUTHID type ZXWEBD_AUTHID optional
+      !IV_PARTNER type BU_PARTNER optional
+      !IS_IMP_EXP type ZXWEBS_IMP_EXP optional
+      !IR_DAO_MODEL type ref to OBJECT optional
+    exporting
+      !ER_OBJECT type ref to OBJECT .
+protected section.
+*"* protected components of class ZCL_XWEB_ELO_PERCONS_LST_DAO
+*"* do not include other source files here!!!
+
+  methods RFC_GET_PFOGY_LIST
+    redefinition .
+private section.
+*"* private components of class ZCL_XWEB_ELO_PERCONS_LST_DAO
+*"* do not include other source files here!!!
+ENDCLASS.
+
+
+
+CLASS ZCL_XWEB_ELO_PERCONS_LST_DAO IMPLEMENTATION.
+
+
+* <SIGNATURE>---------------------------------------------------------------------------------------+
+* | Static Public Method ZCL_XWEB_ELO_PERCONS_LST_DAO=>CREATE_OBJECT
+* +-------------------------------------------------------------------------------------------------+
+* | [--->] IV_CLASS                       TYPE        STRING
+* | [--->] IV_NAME                        TYPE        STRING(optional)
+* | [--->] IV_AUTHID                      TYPE        ZXWEBD_AUTHID(optional)
+* | [--->] IV_PARTNER                     TYPE        BU_PARTNER(optional)
+* | [--->] IS_IMP_EXP                     TYPE        ZXWEBS_IMP_EXP(optional)
+* | [--->] IR_DAO_MODEL                   TYPE REF TO OBJECT(optional)
+* | [<---] ER_OBJECT                      TYPE REF TO OBJECT
+* +--------------------------------------------------------------------------------------</SIGNATURE>
+METHOD CREATE_OBJECT.
+******************************************************************
+*
+* Projekt:   Portál Elo
+* Fejlesztõ: Pál Tamás /X0134 /ERP
+*
+* Release:  SAP NetWeaver 2004s
+*
+* Change history:
+* Date                 	User    Reason
+* ---------------------------------------------------------------*
+* 07.09.2012 21:31:45   X0134  Létrehozva
+* 05.10.2012            X0162  ICx Facelift
+*----------------------------------------------------------------*
+  DATA lr_dao TYPE REF TO object.
+
+  CREATE OBJECT lr_dao
+    TYPE
+    (iv_class)
+    EXPORTING
+      iv_name    = iv_name
+      iv_authid  = iv_authid
+      iv_partner = iv_partner
+      is_imp_exp = is_imp_exp.
+
+*  gv_authid = gs_imp_exp-authid.
+
+  CALL METHOD lr_dao->('ADD_OBJECT')
+    EXPORTING
+      iv_name   = 'DAO_PROC'
+      ir_object = ir_dao_model.
+
+  CALL METHOD lr_dao->('OPEN').
+  er_object = lr_dao.
+
+ENDMETHOD.
+
+
+* <SIGNATURE>---------------------------------------------------------------------------------------+
+* | Instance Protected Method ZCL_XWEB_ELO_PERCONS_LST_DAO->RFC_GET_PFOGY_LIST
+* +-------------------------------------------------------------------------------------------------+
+* | [--->] IV_PARTNER                     TYPE        BU_PARTNER
+* | [--->] IV_VSTELLE                     TYPE        ZXWEBD_VSTELLE(optional)
+* | [--->] IV_ABBIS                       TYPE        ZXWEBD_ABBIS(optional)
+* | [--->] IV_SAVE                        TYPE        FLAG(optional)
+* | [<---] ET_PERFOGY                     TYPE        ZXWEBB_EASTED
+* | [<---] ET_RETURN                      TYPE        BAPIRET2_T
+* +--------------------------------------------------------------------------------------</SIGNATURE>
+METHOD rfc_get_pfogy_list.
+******************************************************************
+*
+* Projekt: PU5 Extension
+* Fejleszto: Tóth Tibor /X0162 /ERP
+*
+* Release:  SAP NetWeaver 2004s
+*
+* Change history:
+* Date                  User    Reason
+* ---------------------------------------------------------------*
+* 26.10.2012 15:30:29   X0162  Létrehozva
+*----------------------------------------------------------------*
+  DATA lv_mess      TYPE char100.
+  DATA ls_bapiret2  TYPE bapiret2.
+
+  CALL FUNCTION 'ZXWEB_ELO_PFOGY_LIST'
+    DESTINATION gv_rfc_dest
+    EXPORTING
+      iv_partner            = iv_partner
+      iv_vstelle            = iv_vstelle
+*     iv_abbis              = SY-DATUM
+      iv_save               = iv_save  "' ' "listázáshoz
+    IMPORTING
+      et_perfogy            = et_perfogy
+      et_return             = et_return
+    EXCEPTIONS
+      communication_failure = 1  MESSAGE lv_mess
+      system_failure        = 2  MESSAGE lv_mess
+      OTHERS                = 4.
+
+  IF sy-subrc NE 0.
+    me->add_message( iv_otr = 'ZVPINETU/MSG004' ).
+*   MESSAGE = 'Kommunikációs hiba történt, kérjük próbálja meg késobb!' ).
+    IF lv_mess IS NOT INITIAL .
+      ls_bapiret2-type = 'E'.
+      ls_bapiret2-message = lv_mess.
+      APPEND ls_bapiret2 TO et_return.
+    ENDIF.
+
+    RETURN.
+  ENDIF.
+
+  LOG-POINT ID zxweb_elo SUBKEY 'RFC_GET_PFOGY_LIST' FIELDS iv_partner iv_vstelle et_perfogy lv_mess.
+
+ENDMETHOD.
+ENDCLASS.

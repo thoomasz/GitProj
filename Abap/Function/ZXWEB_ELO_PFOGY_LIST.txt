@@ -1,0 +1,373 @@
+FUNCTION zxweb_elo_pfogy_list .
+*"----------------------------------------------------------------------
+*"*"Lokális interfész:
+*"  IMPORTING
+*"     VALUE(IV_PARTNER) TYPE  BU_PARTNER
+*"     VALUE(IV_VSTELLE) TYPE  VSTELLE OPTIONAL
+*"     VALUE(IV_ABBIS) TYPE  ABBIS DEFAULT SY-DATUM
+*"     VALUE(IV_SAVE) TYPE  FLAG DEFAULT SPACE
+*"  EXPORTING
+*"     VALUE(ET_PERFOGY) TYPE  ZXWEBB_EASTED
+*"     VALUE(ET_RETURN) TYPE  BAPIRET2_T
+*"     VALUE(ET_CHART) TYPE  ZXWEBB_PERCONS_CHART
+*"----------------------------------------------------------------------
+* Change history:
+* Date    User   Reason
+* ---------------------------------------------------------------------*
+* 2012.11.12. X0162       Létrehozva   ICP upgrade
+* 2013.11.12. X0086       Módosítva    Grafikus megjelenítés
+* 2014.03.12. X0086       Módosítva    több fogyhely hiba
+* 2014.07.28  X0134       Módosítás    INC000006322787-Az alábbi ügyfél diktálós mégis ITS-en sr al
+* ---------------------------------------------------------------------*
+  TYPES: BEGIN OF ts_anlage,
+    anlage TYPE anlage,
+  END OF ts_anlage.
+  TYPES: BEGIN OF ts_out,
+      geraet   TYPE geraet,
+      zwnummer TYPE zwnummer,
+      name     TYPE string,
+      date     TYPE char6,
+      value    TYPE char10.
+  TYPES: END OF ts_out.
+  TYPES: BEGIN OF ts_year,
+      year TYPE char10.
+  TYPES: END OF ts_year.
+
+  DATA lv_year         TYPE char4.
+  DATA lv_date_from    TYPE sy-datum.
+  DATA lv_date_to      TYPE sy-datum.
+  DATA lv_month        TYPE char2.
+  DATA lv_value        TYPE char10.
+  DATA lv_length       TYPE i.
+  DATA lv_partner      TYPE bu_partner.
+  DATA lv_vstelle      TYPE vstelle.
+  DATA lv_datum        TYPE d.
+  DATA lv_ableinh      TYPE ableinh.
+  DATA lv_subrc        TYPE sy-subrc.
+  DATA lv_tariftyp     TYPE tariftyp_anl.
+  DATA lv_diktal       TYPE flag.
+
+
+  DATA ls_perfogy      TYPE zxwebs_easted.
+  DATA ls_vstelle      TYPE zxwebs_vstelle.
+  DATA ls_return       TYPE bapiret2.
+  DATA ls_easted       TYPE easted.
+  DATA ls_chart_data   TYPE ts_out.
+  DATA ls_chart        TYPE zxwebs_percons_chart.
+  DATA ls_year         TYPE ts_year.
+
+  DATA lt_chart_data   TYPE TABLE OF ts_out.
+  DATA lt_vstelle      TYPE zxwebb_vstelle.
+  DATA lt_anlage       TYPE TABLE OF ts_anlage.
+  DATA lt_year         TYPE TABLE OF ts_year.
+  DATA lt_easted       TYPE TABLE OF easted.
+
+  FIELD-SYMBOLS <ls_chart_data> TYPE ts_out.
+  FIELD-SYMBOLS <ls_easted>    TYPE easted.
+  FIELD-SYMBOLS <ls_easted_t>  TYPE easted.
+  FIELD-SYMBOLS <lt_xt_keys>   TYPE zxwebb_xt_keys.
+  FIELD-SYMBOLS <lt_easted>    TYPE zxwebb_easted_full.
+
+  REFRESH et_perfogy.
+
+  CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+    EXPORTING
+      input  = iv_partner
+    IMPORTING
+      output = lv_partner.
+
+  CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+    EXPORTING
+      input  = iv_vstelle
+    IMPORTING
+      output = lv_vstelle.
+
+*Fogyhelyek
+  CALL FUNCTION 'ZXWEB_ELO_GET_VSTELLE'
+    EXPORTING
+      iv_partner = lv_partner
+      iv_vstelle = lv_vstelle
+      iv_aktiv   = iv_save
+      iv_diktal  = space
+    IMPORTING
+      et_vstelle = lt_vstelle
+*     t_return   =
+    .
+
+* Négy évvel korábbi dátum
+  lv_datum = sy-datum.
+  lv_datum(4) = lv_datum(4) - 4.
+*----------------------------------------------------------------------*
+* Elõszelekció: Pontannyisok kizárása
+  IF lt_vstelle IS NOT INITIAL.
+    SELECT anlage
+      INTO TABLE lt_anlage
+      FROM eanl
+      FOR ALL ENTRIES IN lt_vstelle
+      WHERE anlage EQ lt_vstelle-anlage
+        AND anlart IN ('0023','0024').
+  ENDIF.
+
+  PERFORM initialize_parameters IN PROGRAM /sapce/sapmiu_bbhupbq01.
+  ASSIGN ('(/SAPCE/SAPMIU_BBHUPBQ01)EASTED') TO <ls_easted>.
+  IF sy-subrc EQ 0.
+    ASSIGN ('(/SAPCE/SAPMIU_BBHUPBQ01)XT_KEYS[]') TO <lt_xt_keys>.
+  ENDIF.
+  IF sy-subrc EQ 0.
+    ASSIGN ('(/SAPCE/SAPMIU_BBHUPBQ01)T_EASTED[]') TO <lt_easted>.
+  ENDIF.
+  IF sy-subrc EQ 0.
+    LOOP AT lt_vstelle INTO ls_vstelle.
+
+* Pontannyisok kizárása
+      READ TABLE lt_anlage
+        WITH KEY anlage = ls_vstelle-anlage
+        TRANSPORTING NO FIELDS.
+      IF sy-subrc EQ 0.
+        ls_return-type = 'E'.
+        ls_return-message = 'PONTANNYI'.
+        COLLECT ls_return INTO et_return.
+        CONTINUE.
+      ENDIF.
+
+      CALL FUNCTION 'ZXWEB_ELO_GET_ABLEINH'
+        EXPORTING
+          iv_anlage   = ls_vstelle-anlage
+*         iv_bis      = '99991231'
+        IMPORTING
+          ev_ableinh  = lv_ableinh
+          ev_diktal   = lv_diktal
+          ev_tariftyp = lv_tariftyp
+          ev_subrc    = lv_subrc.
+
+      IF lv_diktal EQ 'X'
+        OR lv_tariftyp cp '*R'.
+
+        ls_return-type = 'E'.
+        ls_return-message = 'PONTANNYI'.
+        COLLECT ls_return INTO et_return.
+        CONTINUE.
+
+      ENDIF.
+
+
+      IF ls_vstelle-auszdat NE '99991231'.
+        <ls_easted>-abbis = ls_vstelle-auszdat.
+      ELSE.
+        <ls_easted>-abbis = iv_abbis.
+      ENDIF.
+      <ls_easted>-anlage = ls_vstelle-anlage.
+
+      PERFORM uc100_02 IN PROGRAM /sapce/sapmiu_bbhupbq01.
+
+      CLEAR lt_easted.
+      LOOP AT <lt_easted> INTO ls_easted
+        WHERE bis GE lv_datum
+          AND bis GE ls_vstelle-einzdat
+          AND ab  LE ls_vstelle-auszdat.
+        APPEND ls_easted TO lt_easted.
+      ENDLOOP.
+
+      LOOP AT lt_easted INTO ls_easted.
+        CLEAR ls_perfogy.
+
+        IF iv_save EQ 'X'.
+          CHECK ls_easted-bis EQ '99991231'.
+
+* Kezdõ dátum módosítása
+          CALL FUNCTION 'ISU_BILLING_DATES_FOR_INSTLN'
+            EXPORTING
+              x_anlage          = ls_vstelle-anlage
+*             X_DPC_MR          =
+            IMPORTING
+*             y_begabrpe        = ls_easted-ab
+*             Y_BEGNACH         =
+*             Y_BEGEND          =
+              y_last_endabrpe   = ls_perfogy-endabrpe
+*             Y_NEXT_CONTRACT   =
+*             Y_PREVIOUS_BILL   =
+*             Y_NO_CONTRACT     =
+*             Y_DEFAULT_DATE    =
+            EXCEPTIONS
+              no_contract_found = 1
+              general_fault     = 2
+              parameter_fault   = 3
+              OTHERS            = 4.
+          IF sy-subrc <> 0.
+            MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno
+                    WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+          ENDIF.
+*
+          ls_perfogy-ab_orig = ls_easted-ab.
+*          IF ls_easted-ab < sy-datum.
+*            ls_easted-ab = sy-datum.
+*          ENDIF.
+        ELSE.
+* Csak az adott dátumtól érdekesek a részfogyasztások
+*          CHECK ls_easted-bis GE lv_datum.
+*          CHECK ls_easted-bis GE ls_vstelle-einzdat.
+*          CHECK ls_easted-ab  LE ls_vstelle-auszdat.
+          ls_perfogy-ab_orig = ls_easted-ab.
+
+        ENDIF.
+
+        MOVE-CORRESPONDING ls_easted TO ls_perfogy.         "#EC ENHOK
+        ls_perfogy-zperverbr_orig = ls_easted-zperverbr.
+        ls_perfogy-vstelle        = ls_vstelle-vstelle.
+        ls_perfogy-sparte         = ls_vstelle-sparte.
+
+        IF ls_perfogy-sparte EQ '01'.
+        ELSE.
+          CLEAR ls_perfogy-ztarifarttext.
+        ENDIF.
+
+        APPEND ls_perfogy TO et_perfogy.
+      ENDLOOP.
+
+      CALL FUNCTION 'ISU_MASTER_DATA_DEQUEUE'
+        EXPORTING
+          x_objtype  = 'EANL'
+*         X_NEW_READ = ' '
+*         X_FULL     = ' '
+*         X_ACTUAL   = 'X'
+*         X_SHARED   = ' '
+*         X_PROGRAM  = SY-REPID
+*         X_MODULE   = ' '
+*         X_INIT     = ' '
+        TABLES
+          xt_keys    = <lt_xt_keys>.
+
+
+      SORT et_perfogy.
+      DELETE ADJACENT DUPLICATES FROM et_perfogy.
+
+*--------------------------------------------------------------------*
+*Add chart data
+      LOOP AT et_perfogy INTO ls_perfogy
+        WHERE bis EQ '99991231'
+          AND vstelle EQ ls_vstelle-vstelle
+          AND anlage  EQ ls_vstelle-anlage.
+
+        lv_year = sy-datum(4).
+        lv_year = lv_year - 2.
+
+        ls_chart_data-geraet   = ls_perfogy-geraet.
+        ls_chart_data-zwnummer = ls_perfogy-zwnummer.
+
+        CONCATENATE lv_year '12'   INTO ls_chart_data-date.
+        CONCATENATE lv_year '1231' INTO lv_date_to.
+        LOOP AT lt_easted INTO ls_easted
+          WHERE geraet   EQ ls_perfogy-geraet
+            AND zwnummer EQ ls_perfogy-zwnummer
+            AND ab <= lv_date_to.
+          WRITE ls_easted-perverbr TO ls_chart_data-value.
+*TODO: nem idõben a legközelebbi kell
+*      EXIT.
+        ENDLOOP.
+        IF sy-subrc NE 0.
+          WRITE '0' TO ls_chart_data-value.
+        ENDIF.
+        CONCATENATE lv_year '.év' INTO ls_chart_data-name.
+        APPEND ls_chart_data TO lt_chart_data.
+
+        DO 2 TIMES.
+
+          lv_year = lv_year + 1.
+
+          DO 12 TIMES.
+
+            lv_month = sy-index.
+            IF sy-index < 10 .
+              CONCATENATE lv_year '0' lv_month '01' INTO lv_date_from.
+              CONCATENATE lv_year '0' lv_month      INTO ls_chart_data-date.
+            ELSE.
+              CONCATENATE lv_year lv_month '01'     INTO lv_date_from.
+              CONCATENATE lv_year lv_month          INTO ls_chart_data-date.
+            ENDIF.
+
+            CALL FUNCTION 'LAST_DAY_OF_MONTHS'
+              EXPORTING
+                day_in            = lv_date_from
+              IMPORTING
+                last_day_of_month = lv_date_to
+              EXCEPTIONS
+                day_in_no_date    = 1.
+
+            LOOP AT lt_easted INTO ls_easted
+              WHERE geraet   EQ ls_perfogy-geraet
+                AND zwnummer EQ ls_perfogy-zwnummer
+                AND ab       BETWEEN lv_date_from AND lv_date_to.
+              WRITE ls_easted-perverbr TO ls_chart_data-value.
+*TODO: nem idõben a legközelebbi kell
+*          EXIT.
+            ENDLOOP.
+            CONCATENATE lv_year '.év' INTO ls_chart_data-name.
+
+            ls_year-year = ls_chart_data-name.
+            APPEND ls_year TO lt_year.
+
+            APPEND ls_chart_data TO lt_chart_data.
+            CLEAR ls_chart_data-value.
+          ENDDO.
+          CLEAR ls_chart_data.
+          ls_chart_data-geraet   = ls_perfogy-geraet.
+          ls_chart_data-zwnummer = ls_perfogy-zwnummer.
+        ENDDO.
+
+      ENDLOOP.
+
+      lv_value = '0'.
+
+      LOOP AT et_perfogy INTO ls_perfogy
+        WHERE bis EQ '99991231'
+          AND vstelle EQ ls_vstelle-vstelle
+          AND anlage  EQ ls_vstelle-anlage.
+        LOOP AT lt_chart_data ASSIGNING <ls_chart_data>
+          WHERE geraet   EQ ls_perfogy-geraet
+            AND zwnummer EQ ls_perfogy-zwnummer
+            .
+          IF <ls_chart_data>-value IS INITIAL.
+            <ls_chart_data>-value = lv_value.
+          ELSE.
+            lv_value = <ls_chart_data>-value.
+          ENDIF.
+        ENDLOOP.
+        lv_value = '0'.
+      ENDLOOP.
+
+      SORT lt_year.
+      DELETE ADJACENT DUPLICATES FROM lt_year.
+      LOOP AT et_perfogy INTO ls_perfogy
+        WHERE bis EQ '99991231'
+          AND vstelle EQ ls_vstelle-vstelle
+          AND anlage  EQ ls_vstelle-anlage.
+
+        LOOP AT lt_year INTO ls_year.
+          CLEAR ls_chart.
+
+          LOOP AT lt_chart_data INTO ls_chart_data
+            WHERE geraet   EQ ls_perfogy-geraet
+              AND zwnummer EQ ls_perfogy-zwnummer
+              AND name     EQ ls_year-year.
+
+            SHIFT ls_chart_data-value LEFT DELETING LEADING space.
+*       ha tizedes, akkor pontra kell cserélni
+            CONCATENATE ls_chart-value ls_chart_data-value ',' INTO ls_chart-value.
+*       example '15, 51, 40, 70.6, 87, 150, 111, 142, 22, 23, 24'.
+
+          ENDLOOP.
+          lv_length = strlen( ls_chart-value ) - 1.
+          MOVE ls_chart-value(lv_length) TO ls_chart-value.
+
+          CONCATENATE ls_perfogy-geraet '/' ls_perfogy-zwnummer
+            INTO ls_chart-id.
+          ls_chart-name   = ls_chart_data-name.
+          APPEND ls_chart TO et_chart.
+        ENDLOOP.
+
+      ENDLOOP.
+    ENDLOOP.
+  ENDIF.
+
+
+ENDFUNCTION.
